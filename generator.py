@@ -15,7 +15,12 @@ class SimStudent:
         self.fails = 0
         self.specials = []
         self.info = []
-    def addInfo(self, info):
+        self.enrollmentHistory = [[]]
+    def attempt(self, course):
+        self.enrollmentHistory[-1].append(course)
+    def beginNewYear():
+        self.enrollmentHistory.append([])
+    def msg(self, info):
         self.info.append(info)
     def canGraduate(self):
         for course in Course.gradreqs:
@@ -39,6 +44,245 @@ class SimStudent:
             self.coreProgress[k] = v
     def enroll(self, elective):
         self.electives.append(elective)
+
+def regMethod(func):
+    """ Decorate Registrar methods so that they perform standard book keeping
+        operations
+    """
+    def wrap(*args):
+        args[0].all.extend(args[1:])
+        func(*args)
+    return wrap
+
+class Registrar:
+    """ Contains information relevant to finding courses
+        Should avoid duplicating information that can be gleaned from searching
+            the courses contained within.
+    """
+    def __init__(self):
+        self.nextCrn = 0
+        # a dict of the form {"core class type": {"level n": [courses]}}
+        self.tracks = {}
+        self.all = []
+        self.electives = []
+        self.specials = []
+        self.credits = set()
+        self.gradReqs = {}
+    @regMethod
+    def newCourse(self, *args):
+        """ Add a course
+            This method will most likely be used for core, non elective classes.
+                Record that the class is a core requirement by calling its
+                "track" method.
+        """
+        pass
+    @regMethod
+    def newSpecials(self, *args):
+        self.specials.extend(args)
+    @regMethod
+    def newElectives(self, *args):
+        self.electives.extend(args)
+    def addCourseToTrack(self, c, track, level):
+        recordedTrack = self.tracks.setdefault(track, {})
+        coursesInTrack = recordedTrack.setdefault(level, [])
+        coursesInTrack.append(c)
+    def getCoursesBelowLevel(self, track, level):
+        """ Get the courses below (exclusive) a certain level within a track """
+        reqs = []
+        for l, courses in self.tracks[track].items():
+            if l >= level:
+                continue
+            reqs.extend(courses)
+        return reqs
+    def getNextCrn(self):
+        res = self.nextCrn
+        self.nextCrn += 1
+        return res
+    def recordCredits(self, *titles):
+        self.credits.update(titles)
+    def recordGradReqs(self, **credits):
+        self.gradReqs.update(credits)
+    def prettyprint(self):
+        # this method makes me cringe a little bit
+        print('Registry:')
+        print('  Total Courses (discluding honors):', len(self.all))
+        # keep track of listed so we can see what courses are not in a track,
+        # special, or elective
+        listed = []
+        print('  Tracks:')
+        for track, levels in self.tracks.items():
+            print('  '*2, track)
+            for level in levels.values():
+                for course in level:
+                    print(self._prettyprintCourse(3, course))
+                    listed.append(course)
+        print('  Electives:')
+        for i in self.electives:
+            print(self._prettyprintCourse(2, i))
+            listed.append(i)
+        print('  Specials:')
+        for i in self.specials:
+            print(self._prettyprintCourse(2, i))
+            listed.append(i)
+        print('  Other:')
+        for i in self.all:
+            if i not in listed:
+                print(self._prettyprintCourse(2, i))
+        print('-END-')
+    def _prettyprintCourse(self, indent, c):
+        base = '   '*indent + str(c)
+        if c.hasHonors:
+            base += '\tw/ HON ' + c.honorsTitle
+        return base
+
+class Course:
+    """ Contains all the information about a course, including its prerequisites
+    """
+    def __init__(self, registrar, name,
+                 minGrade=9, hasHonors=False,  honorsTitle=None):
+        self.reg = registrar
+        self.crn = registrar.getNextCrn()
+        self.name = name
+        # record if this course has an honors equivalent
+        self.hasHonors = hasHonors
+        self.honorsTitle = name if honorsTitle is None else honorsTitle
+        self.grade = minGrade
+        # how many credits this course confers
+        self.worth = 0
+        # a list of the credit categories for this course
+        self.credits = []
+        # the credits required to enroll in this course
+        self.preReqs = []
+    def canEnroll(self, student):
+        credits = student.getCredits()
+        for i in self.credits:
+            if i not in credts:
+                return False
+        return True
+    def honors(self, title=None):
+        self.hasHonors = True
+        self.honorsTitle = title if title is not None else self.honorsTitle
+        return self
+    def credit(self, *creditTypes, amt=1):
+        """ Make this course credit bearing
+        """
+        self.worth = amt
+        if len(creditTypes) > 0:
+            self.reg.recordCredits(*creditTypes)
+            self.credits.extend(creditTypes)
+        return self
+    def req(self, *reqs):
+        """ Set the prerequisites for this course, by title or credit names
+            reqs should be a list of course names or credit types
+        """
+        self.preReqs.extend(reqs)
+        return self
+    def track(self, track, level):
+        """ Make this class part of a core track
+        """
+        self.reg.addCourseToTrack(self, track, level)
+        return self
+    def asElective(self):
+        """ Register the course as an elective """
+        self.reg.newElectives(self)
+        return self
+    def asSpecial(self):
+        """ Register the course as a special """
+        self.reg.newSpecials(self)
+        return self
+    def asGeneric(self):
+        """ Register the course as generic """
+        self.reg.newCourse(self)
+        return self
+    def __str__(self):
+        if self.worth == 1:
+            return (self.name
+                   + ' (' + str(self.worth) + ' credit)')
+        return (self.name
+           + ' (' + str(self.worth) + ' credits)')
+
+def trackMaker(track, credit, *courses, allHonors=True, noCredit=False):
+    """ Helper method for making course tracks """
+    for i, c in enumerate(courses):
+        # add c as a gneric course to the track bearing credit under "credit"
+        # and requiring the previous course in the track
+        c.track(track, i).asGeneric()
+        if not noCredit:
+            c.credit(credit)
+        if allHonors:
+            c.honors()
+        if i > 0:
+            # first course has no requirements
+            c.req(courses[i-1].name)
+
+reg = Registrar()
+
+trackMaker("Math", "Math",
+    Course(reg, "Algebra I"),
+    Course(reg, "Geometry"),
+    Course(reg, "Algebra II"),
+        allHonors=True)
+Course(reg, "Precalculus").credit("Math").track("Math", 3).asGeneric() \
+    .req("Algebra II")
+Course(reg, "Math IV").credit("Math").track("Math", 3).asGeneric() \
+    .req("Algebra II")
+Course(reg, "Calculus").credit("Math").track("Math", 4) \
+    .asGeneric().req("Precalculus")
+trackMaker("English", "English",
+    Course(reg, "English 9"),
+    Course(reg, "English 10"),
+    Course(reg, "English 11"),
+    Course(reg, "English 12"),
+        allHonors=True)
+trackMaker("Social Studies", "Social Studies",
+    Course(reg, "Global 9", hasHonors=True),
+    Course(reg, "Global 10", hasHonors=True),
+    Course(reg, "US History", hasHonors=True, honorsTitle="Adv US History"),
+    Course(reg, "Government", hasHonors=False),
+        allHonors=False)
+trackMaker("Spanish", "Spanish",
+    Course(reg, "Spanish 1", hasHonors=False),
+    Course(reg, "Spanish 2", hasHonors=True),
+    Course(reg, "Spanish 3", hasHonors=True),
+    Course(reg, "Spanish 4", hasHonors=False),
+    Course(reg, "Spanish 5", hasHonors=False),
+        allHonors=False)
+trackMaker("Science", "Science",
+    Course(reg, "Earth Science", hasHonors=False),
+    Course(reg, "Biology", hasHonors=True),
+        allHonors=False)
+# add the optional science courses
+Course(reg, "Physics").credit("Science").track("Science", 2).asGeneric()
+Course(reg, "Chemistry").credit("Science").track("Science", 2).asGeneric()
+
+# electives
+    # tech classes
+Course(reg, "DDP").asElective().credit("Tech", "Art or Music")
+Course(reg, "CAD/CAM").asElective().req("DDP").credit("Tech")
+Course(reg, "Intro to Electronics").asElective().credit("Tech")
+Course(reg, "Intro to Programming").asElective().credit("Tech")
+Course(reg, "Intro to Web Design").asElective().credit("Tech")
+    # art classes
+Course(reg, "Studio in Art").asElective().credit("Art")
+Course(reg, "Drawing").asElective().credit("Art").req("Studio in Art")
+Course(reg, "Photography").asElective().credit("Art").req("Studio in Art")
+Course(reg, "Ceramics").asElective().credit("Art").req("Studio in Art")
+    # business
+Course(reg, "Marketing").asElective().credit("Business")
+    # liberal artsy electives
+Course(reg, "Adv Biology", minGrade=11).asElective().credit()
+Course(reg, "Anatomy", minGrade=11).asElective().credit()
+Course(reg, "Western Civilization", minGrade=11).asElective().credit()
+Course(reg, "Creative Writing", minGrade=11).asElective().credit()
+    # specials
+Course(reg, "Band").asSpecial()
+Course(reg, "Girl's PE").asSpecial()
+Course(reg, "Boy's PE").asSpecial()
+Course(reg, "Study Hall").asSpecial()
+    # other
+Course(reg, "College Success", minGrade=11).asGeneric().credit()
+Course(reg, "Parenting", minGrade=12).asGeneric().credit()
+reg.prettyprint()
 
 class Course:
     all = []
