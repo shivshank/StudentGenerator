@@ -1,49 +1,84 @@
 import random
 from random import randint
 
-class SimStudent:
-    def __init__(self, id, name, age, gender, grade):
+simParams = {
+    "lowAge": 0.6,                          # % students who enter HS at age 14
+    "failChance": 0.08,                     # chance of failing a class
+    "honors": 0.15,                         # chance of student getting honors
+    "honorsFailOut": 0.05,                  # chance of a student losing honors
+    "band": 0.5,                            # percent of kids who take band
+    "dropoutAge": 17,                       # age at which students can drop out
+    "dropoutChance": 0.05,                  # percent of kids who drop out
+    "maxAge": 20,                           # max age which students can attend
+    "electives": 2,                         # electives each year
+    "maxCourses": 8,                         # total courses someone can take
+    "enrollment": 110,                      # baseline students enrolled
+    "enrollmentMargin": 25                  # max +/- enrollment
+}
+
+gradReqs = {
+    "English": 4,
+    "Social Studies": 4,
+    "Math": 3,
+    "Science": 3,
+    "PE": 4,
+    "College Success": 1,
+    "Art or Music": 1,
+    "Tech": 0.5,
+    "Spanish": 3,
+    "Total": 24
+}
+simParams["gradReqs"] = gradReqs
+
+randomNames = [
+    "Bob", "Jack", "Dave", "John", "Cynthia", "Robert", "Ruth", "Antonin",
+    "Larry", "Mike", "Sam", "Elena", "Anthony", "Clarence", "Thomas", "Kennedy",
+    "Sonia", "Stephen", "Donald", "Bernard", "Henry", "Hillary", "William"
+]
+
+class Student:
+    def __init__(self, id, fname, lname, age, grade):
         self.id = id
-        self.name = name
-        self.gender = gender
+        self.name = (fname, lname)
         self.age = age
         self.grade = grade
-        self.electives = []
-        self.coreProgress = {}
-        self.credits = set()
-        # fails is not used
-        self.fails = 0
-        self.specials = []
         self.info = []
+        # classes passed and failed
+        self.failedClasses = set()
+        self.passedClasses = set()
+        # asHonors is used to see if a student is taking/passed an honors class
+        self.asHonors = set()
+        # represents ALL credits
+        self.credits = {}
+        # each year is represented by a list of courses
         self.enrollmentHistory = [[]]
+    def getPassed(self):
+        return self.passedClasses
     def attempt(self, course):
+        """ Record that a class was attempted """
         self.enrollmentHistory[-1].append(course)
     def beginNewYear():
+        """ Record that a new year has begun (for bookkeeping only) """
         self.enrollmentHistory.append([])
     def msg(self, info):
+        """ Record a message about this student (for bookkeeping only) """
         self.info.append(info)
-    def canGraduate(self):
-        for course in Course.gradreqs:
-            if course not in self.credits:
-                return False
-        return True
-    def getGradReqs(self):
-        reqs = []
-        for course in Course.gradreqs:
-            if course not in self.credits:
-                reqs.append(course)
-        return reqs
     def failed(self, course):
-        self.fails += 1
+        self.failedClasses.add(course)
     def passed(self, course):
-        assert course not in self.credits, \
+        assert course not in self.passedClasses, \
             "student took a class twice: " + course.name
-        self.credits.add(course)
+        self.passedClasses.add(course)
+        # ask this course to confer its credits onto the student
+        course.confer(self)
     def setTracks(self, **kwargs):
         for k, v in kwargs.items():
             self.coreProgress[k] = v
     def enroll(self, elective):
         self.electives.append(elective)
+    def giveCredits(self, credits, amount):
+        for i in credits:
+            self.credits[i] = self.credits.get(i, 0) + amount
 
 def regMethod(func):
     """ Decorate Registrar methods so that they perform standard book keeping
@@ -60,7 +95,7 @@ class Registrar:
             the courses contained within.
     """
     def __init__(self):
-        self.nextCrn = 0
+        self.nextId = 0
         # a dict of the form {"core class type": {"level n": [courses]}}
         self.tracks = {}
         self.all = []
@@ -68,6 +103,29 @@ class Registrar:
         self.specials = []
         self.credits = set()
         self.gradReqs = {}
+    def getCourse(self, id=None, name=None):
+        if id is not None:
+            return self.getCourseById(id)
+        if name is not None:
+            return self.getCourseByName(name)
+        return None
+    def getCourseByName(self, name):
+        for i in self.all:
+            if i.name == name:
+                return i
+        return None
+    def getCourseById(self, id):
+        # see if the course is at that index
+        try:
+            res = self.all[id]
+            if res.id == id:
+                return res
+        except IndexError:
+            pass
+        for i in self.all:
+            if i.id == id:
+                return i
+        return None
     @regMethod
     def newCourse(self, *args):
         """ Add a course
@@ -94,9 +152,9 @@ class Registrar:
                 continue
             reqs.extend(courses)
         return reqs
-    def getNextCrn(self):
-        res = self.nextCrn
-        self.nextCrn += 1
+    def getNextCourseId(self):
+        res = self.nextId
+        self.nextId += 1
         return res
     def recordCredits(self, *titles):
         self.credits.update(titles)
@@ -141,7 +199,7 @@ class Course:
     def __init__(self, registrar, name,
                  minGrade=9, hasHonors=False,  honorsTitle=None):
         self.reg = registrar
-        self.crn = registrar.getNextCrn()
+        self.id = registrar.getNextCourseId()
         self.name = name
         # record if this course has an honors equivalent
         self.hasHonors = hasHonors
@@ -153,10 +211,23 @@ class Course:
         self.credits = []
         # the credits required to enroll in this course
         self.preReqs = []
+        self.elective = False
+        self.special = False
+    def confer(self, student):
+        student.giveCredits(self.credits, self.worth)
+    def isElective(self):
+        return self.elective
+    def isSpecial(self):
+        return self.special
     def canEnroll(self, student):
-        credits = student.getCredits()
-        for i in self.credits:
-            if i not in credts:
+        if student.grade < self.grade:
+            return False
+        # don't let a student take a class twice
+        if self in student.getPassed():
+            return False
+        credits = student.getPassed()
+        for i in self.preReqs:
+            if i not in credits:
                 return False
         return True
     def honors(self, title=None):
@@ -175,7 +246,7 @@ class Course:
         """ Set the prerequisites for this course, by title or credit names
             reqs should be a list of course names or credit types
         """
-        self.preReqs.extend(reqs)
+        self.preReqs.extend(reg.getCourse(name=i) for i in reqs)
         return self
     def track(self, track, level):
         """ Make this class part of a core track
@@ -185,9 +256,11 @@ class Course:
     def asElective(self):
         """ Register the course as an elective """
         self.reg.newElectives(self)
+        self.elective = True
         return self
     def asSpecial(self):
         """ Register the course as a special """
+        self.special = True
         self.reg.newSpecials(self)
         return self
     def asGeneric(self):
@@ -259,6 +332,7 @@ Course(reg, "Chemistry").credit("Science").track("Science", 2).asGeneric()
     # tech classes
 Course(reg, "DDP").asElective().credit("Tech", "Art or Music")
 Course(reg, "CAD/CAM").asElective().req("DDP").credit("Tech")
+Course(reg, "Architecture").asElective().req("DDP").credit("Tech")
 Course(reg, "Intro to Electronics").asElective().credit("Tech")
 Course(reg, "Intro to Programming").asElective().credit("Tech")
 Course(reg, "Intro to Web Design").asElective().credit("Tech")
@@ -275,101 +349,61 @@ Course(reg, "Anatomy", minGrade=11).asElective().credit()
 Course(reg, "Western Civilization", minGrade=11).asElective().credit()
 Course(reg, "Creative Writing", minGrade=11).asElective().credit()
     # specials
-Course(reg, "Band").asSpecial()
-Course(reg, "Girl's PE").asSpecial()
-Course(reg, "Boy's PE").asSpecial()
+Course(reg, "Band").asSpecial().credit("Art or Music")
+Course(reg, "PE").asSpecial().credit("PE")
 Course(reg, "Study Hall").asSpecial()
-    # other
-Course(reg, "College Success", minGrade=11).asGeneric().credit()
-Course(reg, "Parenting", minGrade=12).asGeneric().credit()
-reg.prettyprint()
+Course(reg, "College Success", minGrade=11) \
+    .asSpecial().credit("College Success")
 
-class Course:
-    all = []
-    gradreqs = []
-    @classmethod
-    def withName(cls, name):
-        for i in cls.all:
-            if i.name == name:
-                return i
-        return None
-    def __init__(self, name, hasHonors=False, grade=9):
-        self.id = len(Course.all)
-        self.name = name
-        self.hasHonors = hasHonors
-        self.grade = grade
-        Course.all.append(self)
-    def grad(self):
-        Course.gradreqs.append(self)
-        return self
+def suggestClasses(reg, student, gradReqs,
+                   ignoreElectives=True, ignoreSpecials=True):
+    req = []
+    options = []
+    # some misc reqs might be in this list but it wont matter
+    unmet = [k for k, v in gradReqs.items() if student.credits.get(k, 0) < v]
+    for course in reg.all:
+        if not course.canEnroll(student):
+            continue
+        if ignoreElectives and course.isElective():
+            continue
+        if ignoreSpecials and course.isSpecial():
+            continue
+        # if the course meets (i.e., intersects with) unmet requirements...
+        if len(list(set(unmet).intersection(course.credits))) > 0:
+            req.append(course)
+        else:
+            options.append(course)
+    return req, options
 
-simParams = {
-    "girl": 0.5,
-    "honors": 0.15,
-    "failChance": 0.08,
-    "band": 0.5,
-    "dropoutAge": 17,
-    "dropoutChance": 0.05,
-    "maxAge": 20,
-    "electives": 2,
-    "enrollment": 110,
-    "enrollmentMargin": 0.1,
-    "lowAge": 0.4
-}
+def getAvailableElectives(reg, student):
+    res = []
+    for elective in reg.electives:
+        if elective.canEnroll(student):
+            res.append(elective)
+    return res
 
-Course.tracks = {
-    "math": [
-        Course("Algebra I"),
-        Course("Geometry", True),
-        Course("Algebra II").grad(),
-        Course("Precalculus"),
-        Course("Calculus")
-    ],
-    "science": [
-        Course("Earth Science"),
-        Course("Biology", True).grad(),
-        (Course("Chemistry"), Course("Physics"))
-    ],
-    "history": [
-        Course("Global History I", True),
-        Course("Global History II", True),
-        Course("American History", True).grad(),
-        Course("Government").grad()
-    ],
-    "english": [
-        Course("English I", True),
-        Course("English II", True),
-        Course("English III", True),
-        Course("English IV", True).grad()
-    ],
-    "spanish": [
-        Course("Spanish I", True),
-        Course("Spanish II", True),
-        Course("Spanish III", True).grad(),
-        Course("Spanish IV", True),
-        Course("Spanish V")
-    ]
-}
+def enrollNewStudent(params, reg, id):
+    # generate cheasy names and student data
+    age = 14 if random.random() < params["lowAge"] else 15
+    lname = random.choice(randomNames) + ("s" if random.random() > 0.25 else "")
+    s = Student(id, random.choice(randomNames), lname, age, 9)
+    enrolledCredits = set()
+    enrolledCount = 0
+    req, opts = suggestClasses(reg, s, params["gradReqs"])
+    # this could be a lot cleaner
+    while enrolledCount < params["maxCourses"] and len(req) + len(opts) > 0:
+        # TODO
+        if len(req) > 0:
+            selected = req.pop(randint(0, len(req)-1))
+            enrolledCredits.update(selected.credits)
+            enrolledCount += 1
+        if len(opts) > 0:
+            selected = opts.pop(randint(0, len(opts)-1))
+            enrolledCount += 1
+            enrolledCredits.update(selected.credits)
+    return s
 
-Course.electives = [
-    Course("DDP"),
-    Course("Intro to Electronics"),
-    Course("Drawing"),
-    Course("Photography"),
-    Course("Ceramics"),
-    Course("Intro to Programming"),
-    Course("Marketing"),
-    Course("Adv Biology", grade=11),
-    Course("Western Civilization", grade=11),
-    Course("Creative Writing", grade=11)
-]
-
-Course.specials = [
-    Course("Band"),
-    Course("Girl's PE"),
-    Course("Boy's PE"),
-    Course("Study Hall")
-]
+enrollNewStudent(simParams, reg, 7)
 
 def enrollYear(studentsList, params):
     # the first parameter is an out parameter to be more consistent with
@@ -468,7 +502,7 @@ def simulate(params, years=4, enrollingYears=None):
             enrollingYears -= 1
     return enrolled, students, dropouts, graduates
 
-if __name__ == "__main__":
+if __name__ == "__main__z":
     enrolled, students, dropouts, graduates = simulate(simParams, 8, 1)
     print('total enrolled', enrolled)
     print('dropouts', len(dropouts))
