@@ -23,7 +23,7 @@ class Course(model.Course):
         """ Set the prerequisites for this course, by title or credit names
             reqs should be a list of course names or credit types
         """
-        self.preReqs.extend(reg.getCourse(name=i) for i in reqs)
+        self.preReqs.extend(self.reg.getCourse(name=i) for i in reqs)
         return self
     def track(self, track, level):
         """ Make this class part of a core track """
@@ -61,17 +61,21 @@ def trackMaker(track, credit, *courses, allHonors=True, noCredit=False):
 simParams = {
     "lowAge": 0.6,                          # % students who enter HS at age 14
     "failChance": 0.08,                     # chance of failing a class
-    "honors": 0.15,                         # chance of student getting honors
-    "honorsFailChance": 0.05,               # chance of failing an honors course
-    "honorsFallOut": 0.03,                  # chance of a student losing honors
+    "honors": 0.17,                         # chance of student getting honors
+    # how much more likely an honors student is to have more honors classes
+    "honorsCompound": 0.3,
+    "honorsFailChance": 0.03,               # chance of failing an honors course
+    "honorsFallOut": 0.06,                  # chance of a student losing honors
     "band": 0.5,                            # percent of kids who take band
     "dropoutAge": 17,                       # age at which students can drop out
-    "dropoutChance": 0.05,                  # percent of kids who drop out
+    "dropoutChance": 0.03,                  # percent of kids who drop out
     "maxAge": 20,                           # max age which students can attend
     "electives": 2,                         # electives each year
     "maxCourses": 8,                        # total courses someone can take
     "enrollment": 110,                      # baseline students enrolled
-    "enrollmentMargin": 25                  # max +/- enrollment
+    "enrollmentMargin": 25,                 # max +/- enrollment
+    # freshman can start already having credit in these courses
+    "skippable": {"Earth Science", "Algebra I"}
 }
 
 gradReqs = {
@@ -83,10 +87,9 @@ gradReqs = {
     "College Success": 1,
     "Art or Music": 1,
     "Tech": 0.5,
-    "Spanish": 3,
-    "Total": 24
+    "Spanish": 3
 }
-simParams["gradReqs"] = gradReqs
+totalCredits = 24
 
 randomNames = [
     "Bob", "Jack", "Dave", "John", "Cynthia", "Robert", "Ruth", "Antonin",
@@ -94,92 +97,103 @@ randomNames = [
     "Sonia", "Stephen", "Donald", "Bernard", "Henry", "Hillary", "William"
 ]
 
-reg = Registrar()
+def makeDefaultRegistrar(gradReqs):
+    reg = Registrar()
 
-trackMaker("Math", "Math",
-    Course(reg, "Algebra I"),
-    Course(reg, "Geometry"),
-    Course(reg, "Algebra II"),
-        allHonors=True)
-Course(reg, "Precalculus").credit("Math").track("Math", 3).asGeneric() \
-    .req("Algebra II")
-Course(reg, "Math IV").credit("Math").track("Math", 3).asGeneric() \
-    .req("Algebra II")
-Course(reg, "Calculus").credit("Math").track("Math", 4) \
-    .asGeneric().req("Precalculus")
-trackMaker("English", "English",
-    Course(reg, "English 9"),
-    Course(reg, "English 10"),
-    Course(reg, "English 11"),
-    Course(reg, "English 12"),
-        allHonors=True)
-trackMaker("Social Studies", "Social Studies",
-    Course(reg, "Global 9", hasHonors=True),
-    Course(reg, "Global 10", hasHonors=True),
-    Course(reg, "US History", hasHonors=True, honorsTitle="Adv US History"),
-    Course(reg, "Government", hasHonors=False),
-        allHonors=False)
-trackMaker("Spanish", "Spanish",
-    Course(reg, "Spanish 1", hasHonors=False),
-    Course(reg, "Spanish 2", hasHonors=True),
-    Course(reg, "Spanish 3", hasHonors=True),
-    Course(reg, "Spanish 4", hasHonors=False),
-    Course(reg, "Spanish 5", hasHonors=False),
-        allHonors=False)
-trackMaker("Science", "Science",
-    Course(reg, "Earth Science", hasHonors=False),
-    Course(reg, "Biology", hasHonors=True),
-        allHonors=False)
-# add the optional science courses
-Course(reg, "Physics").credit("Science").track("Science", 2).asGeneric()
-Course(reg, "Chemistry").credit("Science").track("Science", 2).asGeneric()
-
-# electives
-    # tech classes
-Course(reg, "DDP").asElective().credit("Tech", "Art or Music")
-Course(reg, "CAD/CAM").asElective().req("DDP").credit("Tech")
-Course(reg, "Architecture").asElective().req("DDP").credit("Tech")
-Course(reg, "Intro to Electronics").asElective().credit("Tech")
-Course(reg, "Intro to Programming").asElective().credit("Tech")
-Course(reg, "Intro to Web Design").asElective().credit("Tech")
-    # art classes
-Course(reg, "Studio in Art").asElective().credit("Art")
-Course(reg, "Drawing").asElective().credit("Art").req("Studio in Art")
-Course(reg, "Photography").asElective().credit("Art").req("Studio in Art")
-Course(reg, "Ceramics").asElective().credit("Art").req("Studio in Art")
-    # business
-Course(reg, "Marketing").asElective().credit("Business")
-    # liberal artsy electives
-Course(reg, "Adv Biology", minGrade=11).asElective().credit()
-Course(reg, "Anatomy", minGrade=11).asElective().credit()
-Course(reg, "Western Civilization", minGrade=11).asElective().credit()
-Course(reg, "Creative Writing", minGrade=11).asElective().credit()
+    trackMaker("Math", "Math",
+        Course(reg, "Algebra I", hasHonors=False),
+        Course(reg, "Geometry", hasHonors=True),
+        Course(reg, "Algebra II", hasHonors=True),
+            allHonors=False)
+    Course(reg, "Precalculus").credit("Math").track("Math", 3).asGeneric() \
+        .req("Algebra II")
+    Course(reg, "Math IV").credit("Math").track("Math", 3).asGeneric() \
+        .req("Algebra II")
+    Course(reg, "Calculus").credit("Math").track("Math", 4) \
+        .asGeneric().req("Precalculus")
+    trackMaker("English", "English",
+        Course(reg, "English 9"),
+        Course(reg, "English 10"),
+        Course(reg, "English 11"),
+        Course(reg, "English 12"),
+            allHonors=True)
+    trackMaker("Social Studies", "Social Studies",
+        Course(reg, "Global 9", hasHonors=True),
+        Course(reg, "Global 10", hasHonors=True),
+        Course(reg, "US History", hasHonors=True, honorsTitle="Adv US History"),
+        Course(reg, "Government", hasHonors=False),
+            allHonors=False)
+    trackMaker("Spanish", "Spanish",
+        Course(reg, "Spanish 1", hasHonors=False),
+        Course(reg, "Spanish 2", hasHonors=True),
+        Course(reg, "Spanish 3", hasHonors=True),
+        Course(reg, "Spanish 4", hasHonors=False),
+        Course(reg, "Spanish 5", hasHonors=False),
+            allHonors=False)
+    trackMaker("Science", "Science",
+        Course(reg, "Earth Science", hasHonors=False),
+        Course(reg, "Biology", hasHonors=True),
+            allHonors=False)
+    # add the optional science courses
+    Course(reg, "Physics").credit("Science").track("Science", 2) \
+        .asGeneric().req("Earth Science", "Biology")
+    Course(reg, "Chemistry").credit("Science").track("Science", 2) \
+        .asGeneric().req("Earth Science", "Biology")
+    # electives
+        # tech classes
+    Course(reg, "DDP").asElective().credit("Tech", "Art or Music")
+    Course(reg, "CAD/CAM").asElective().req("DDP").credit("Tech")
+    Course(reg, "Architecture").asElective().req("DDP").credit("Tech")
+    Course(reg, "Intro to Electronics").asElective().credit("Tech")
+    Course(reg, "Intro to Programming").asElective().credit("Tech")
+    Course(reg, "Intro to Web Design").asElective().credit("Tech")
+        # art classes
+    Course(reg, "Studio in Art").asElective().credit("Art")
+    Course(reg, "Drawing").asElective().credit("Art").req("Studio in Art")
+    Course(reg, "Photography").asElective().credit("Art").req("Studio in Art")
+    Course(reg, "Ceramics").asElective().credit("Art").req("Studio in Art")
+        # business
+    Course(reg, "Marketing").asElective().credit("Business")
+        # liberal artsy electives
+    Course(reg, "Adv Biology", minGrade=11).asElective().credit()
+    Course(reg, "Anatomy", minGrade=11).asElective().credit()
+    Course(reg, "Western Civilization", minGrade=11).asElective().credit()
+    Course(reg, "Creative Writing", minGrade=11).asElective().credit()
     # specials
-Course(reg, "Band").asSpecial().credit("Art or Music")
-Course(reg, "PE").asSpecial().credit("PE")
-Course(reg, "Study Hall").asSpecial()
-Course(reg, "College Success", minGrade=11) \
-    .asSpecial().credit("College Success")
+    Course(reg, "Band").asSpecial().credit("Art or Music")
+    Course(reg, "PE").asSpecial().credit("PE")
+    Course(reg, "Study Hall").asSpecial()
+    Course(reg, "College Success", minGrade=11) \
+        .asSpecial().credit("College Success")
+    reg.recordGradReqs(**gradReqs)
+    return reg
 
-def suggestClasses(reg, student, gradReqs,
-                   ignoreElectives=True, ignoreSpecials=True):
+def suggestClasses(reg, student, ignoreElectives=True, ignoreSpecials=True):
     req = []
     options = []
-    # some misc reqs might be in this list but it wont matter
-    unmet = [k for k, v in gradReqs.items() if student.credits.get(k, 0) < v]
     for course in reg.all:
         if not course.canEnroll(student):
             continue
-        if ignoreElectives and course.isElective():
-            continue
         if ignoreSpecials and course.isSpecial():
             continue
+        if ignoreElectives and course.isElective():
+            continue
+        elif course.isElective():
+            options.append(course)
+            continue
         # if the course meets (i.e., intersects with) unmet requirements...
-        if len(list(set(unmet).intersection(course.credits))) > 0:
+        if isTowardProgress(reg, course, student):
             req.append(course)
         else:
             options.append(course)
     return req, options
+
+def isTowardProgress(reg, course, student):
+    gradReqs = reg.gradReqs
+    # get all credit categories from gradReqs that are unfulfilled by student
+    unmet = [k for k, v in gradReqs.items()
+             if student.getCredits().get(k, 0) < v]
+    return len(set(unmet).intersection(course.credits)) > 0
 
 def getAvailableElectives(reg, student):
     res = []
@@ -189,50 +203,105 @@ def getAvailableElectives(reg, student):
     return res
 
 def enrollNewStudent(params, reg, id):
+    """ Generate a new 9th grade Freshman """
     # generate cheasy names and student data
+    skippable = params["skippable"]
     age = 14 if random.random() < params["lowAge"] else 15
     lname = random.choice(randomNames) + ("s" if random.random() > 0.25 else "")
     s = Student(id, random.choice(randomNames), lname, age, 9)
-    enrolledCredits = set()
-    enrolledCount = 0
-    req, opts = suggestClasses(reg, s, params["gradReqs"])
-    # this could be a lot cleaner
-    while enrolledCount < params["maxCourses"] and len(req) + len(opts) > 0:
-        # TODO
-        if len(req) > 0:
-            selected = req.pop(randint(0, len(req)-1))
-            enrolledCredits.update(selected.credits)
-            enrolledCount += 1
-        if len(opts) > 0:
-            selected = opts.pop(randint(0, len(opts)-1))
-            enrolledCount += 1
-            enrolledCredits.update(selected.credits)
+    s.beginNewYear()
+    s.enroll(reg.getCourse(name="PE"))
+    enrolledCount = 1
+    if random.random() < params["band"]:
+        s.enroll(reg.getCourse(name="Band"))
+        enrolledCount += 1
+    req, opts = suggestClasses(reg, s, ignoreElectives=False)
+    honorsChance = params["honors"]
+    def asHonors(c):
+        nonlocal honorsChance
+        res = c.hasHonors and random.random() < honorsChance
+        if res:
+            honorsChance *= 1 + params["honorsCompound"]
+        return res
+    while enrolledCount < params["maxCourses"] and len(req) > 0:
+        selected = req.pop(randint(0, len(req)-1))
+        if selected.name in skippable:
+            honorsResult = random.random() < honorsChance
+            honorsChance *= (1 + params["honorsCompound"])**honorsResult
+            if honorsResult:
+                # give student credit for the course
+                s.passed(selected, True, overrideHonors=True)
+                selected = next(i for i in reg.getCoursesRequiring(selected)
+                                if i.canEnroll(s))
+                # enroll them in the next course
+                s.enroll(selected, random.random() >= params["honorsFallOut"])
+                enrolledCount += 1
+                continue
+        honorsResult = asHonors(selected)
+        s.enroll(selected, honorsResult)
+        enrolledCount += 1
+    while enrolledCount < params["maxCourses"] and len(opts) > 0:
+        selected = opts.pop(randint(0, len(opts)-1))
+        # electives probably won't have honors versions, but just in case
+        s.enroll(selected, asHonors(selected))
+        enrolledCount += 1
     return s
 
-def enrollYear(studentsList, params):
-    # the first parameter is an out parameter to be more consistent with
-    # advanceStudents
+def enrollYear(params, reg, baseId):
     students = []
-    margin = (random.random() * 2 - 1) * params["enrollmentMargin"] * \
-              params["enrollment"]
+    margin = (random.random() * 2 - 1) * params["enrollmentMargin"]
     enrolled = params["enrollment"] + int(round(margin, 0))
-    trackProgress = lambda: (
-        (1, True) if random.random() > params["honors"] else (0, False))
     for i in range(enrolled):
-        gender = "girl" if random.random() <= params["girl"] else "boy"
-        age = 14 if random.random() <= params["lowAge"] else 15
-        s = SimStudent(i, "", age, gender, 9)
-        s.setTracks(
-            math=trackProgress(),
-            science=trackProgress(),
-            history=trackProgress(),
-            english=trackProgress(),
-            spanish=trackProgress())
-        students.append(s)
-    studentsList.extend(students)
-    return enrolled
+        students.append(enrollNewStudent(params, reg, i + baseId))
+    return students
 
-def advanceStudents(students, params):
+def advanceStudent(params, reg, student):
+    # resolve this students classes
+    honorsChance = params["honorsChance"] * \
+                   (1 + params["honorsCompound"])**len(student.asHonors)
+    def asHonors(c):
+        res = c.hasHonors and random.random() < honorsChance
+        honorsChance *= 1 if not res else (1 + params["honorsCompound"])
+        return res
+    for course in student.getEnrolled():
+        if course in student.asHonors:
+            # TODO: is this the right way to do random chances for this case?
+            if random.random() < params["honorsFailChance"]:
+                # student failed the honors class
+                student.failed(course)
+            elif random.random() < params["honorsFallOut"]:
+                # student passed but without honors
+                student.passsed(course, False)
+            else:
+                # student passed with honors
+                student.passed(course, True)
+            continue
+        if random.random() < params["failChance"]:
+            student.failed(course)
+        else:
+            student.passed(course)
+    student.beginNewYear()
+    student.enroll(reg.getCourse(name="PE"))
+    enrolled = 1
+    if random.random() < params["band"]:
+        student.enroll(reg.getCourse(name="Band"))
+        enrolled += 1
+    if s.grade >= 11:
+        # prioritize required classes after junior year
+        maxReqs = params["maxCourses"]
+    else:
+        maxReqs = params["maxCourses"] - params["electives"]
+    req, opts = suggestClasses(reg, s, ignoreElectives=False)
+    while enrolled < maxReqs and len(req) > 0:
+        selected = req.pop(randint(0, len(req)-1))
+        student.enroll(selected, asHonors(selected))
+        enrolled += 1
+    while enrolled < params["maxCourses"] and len(opts) > 0:
+        selected = opts.pop(randint(0, len(opts)-1))
+        student.enroll(selected, asHonors(selected))
+        enrolled += 1
+
+def advanceStudents(params, reg, students):
     dropouts = []
     graduates = []
     for s in students:
@@ -290,7 +359,7 @@ def advanceStudents(students, params):
         students.remove(s)
     return dropouts, graduates
 
-def simulate(params, years=4, enrollingYears=None):
+def simulate(params, reg, years=4, enrollingYears=None):
     # simulate four years of school
     students = []
     dropouts = []
@@ -298,16 +367,21 @@ def simulate(params, years=4, enrollingYears=None):
     enrolled = 0
     enrollingYears = years if enrollingYears is None else enrollingYears
     for i in range(years):
-        dropped, grads = advanceStudents(students, params)
+        dropped, grads = advanceStudents(params, reg, students)
         dropouts.extend(dropped)
         graduates.extend(grads)
         if enrollingYears > 0:
-            enrolled += enrollYear(students, params)
+            newStudents = enrollYear(params, reg, len(students))
+            enrolled += len(newStudents)
+            students.extend(newStudents)
             enrollingYears -= 1
-    return enrolled, students, dropouts, graduates
+    return students, enrolled, dropouts, graduates
 
-if __name__ == "__main__z":
-    enrolled, students, dropouts, graduates = simulate(simParams, 8, 1)
+if __name__ == "__main__":
+    reg = makeDefaultRegistrar(gradReqs)
+    students, enrolled, dropouts, graduates = simulate(simParams, reg, 1, 1)
+    
+    """
     print('total enrolled', enrolled)
     print('dropouts', len(dropouts))
     print('grads', len(graduates))
@@ -317,4 +391,4 @@ if __name__ == "__main__z":
     print('Average age of graduate:', avgGradAge)
     print('Graduates aged 19:', len([i for i in graduates if i.age == 19]) )
     print('Graduates aged 18:', len([i for i in graduates if i.age == 18]))
-    print('Graduates aged 17:', len([i for i in graduates if i.age == 17]))
+    print('Graduates aged 17:', len([i for i in graduates if i.age == 17]))"""

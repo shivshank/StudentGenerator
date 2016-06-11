@@ -62,6 +62,14 @@ class Registrar:
         recordedTrack = self.tracks.setdefault(track, {})
         coursesInTrack = recordedTrack.setdefault(level, [])
         coursesInTrack.append(c)
+    def getCoursesAfterLevel(self, track, level):
+        """ Get succeeding courses in a track, including the level - course """
+        reqs = []
+        for l, courses in self.tracks[track].items():
+            if l > level:
+                continue
+            reqs.extend(courses)
+        return reqs
     def getCoursesBelowLevel(self, track, level):
         """ Get the courses below (exclusive) a certain level within a track """
         reqs = []
@@ -70,6 +78,8 @@ class Registrar:
                 continue
             reqs.extend(courses)
         return reqs
+    def getCoursesRequiring(self, req):
+        return [course for course in self.all if course.hasPrerequisite(req)]
     def getNextCourseId(self):
         res = self.nextId
         self.nextId += 1
@@ -133,8 +143,8 @@ class Student:
         # represents credits earned
         self.credits = {}
         # each year is represented by a list of courses
-        self.enrollmentHistory = [[]]
-    def beginNewYear():
+        self.enrollmentHistory = []
+    def beginNewYear(self):
         """ Record that a new year has begun (for bookkeeping only) """
         self.enrollmentHistory.append([])
     def msg(self, info):
@@ -142,32 +152,46 @@ class Student:
         self.info.append(info)
     def enroll(self, course, asHonors=False):
         """ Record that a class was attempted """
+        if len(self.enrollmentHistory) < 1:
+            raise IndexError("You must call beginNewYear before enrolling")
         self.enrollmentHistory[-1].append(course)
         if asHonors:
             if not course.hasHonors:
                 raise ValueError("Course", str(course), "does not have honors")
             self.asHonors.add(course)
+    def getEnrolled(self):
+        return self.enrollmentHistory[-1]
     def isEnrolledIn(self, course):
         return course in self.enrollmentHistory[-1]
     def isEnrolledInHonors(self, course):
-        if not course.hasHonors:
-            return False
         return course in self.enrollmentHistory[-1] and course in self.asHonors
     def hasTaken(self, course):
         return course in self.passedClasses or course in self.failedClasses
+    def hasPassed(self, course):
+        return course in self.passedClasses
     def getPassed(self):
         return self.passedClasses
     def getCredits(self):
         return self.credits
     def failed(self, course):
         """ record that a class has been failed, receiving no credits """
+        if course in self.passedClasses:
+            raise ValueError("student has already passed this course")
         self.failedClasses.add(course)
         # discard prevents key error from being thrown for non honors courses
         self.asHonors.discard(course)
-    def passed(self, course):
+    def passed(self, course, asHonors, overrideHonors=False):
         """ record that a class has been passed and confer the credits """
-        assert course not in self.passedClasses, \
-            "student took a class twice: " + course.name
+        if course in self.passedClasses:
+            raise ValueError("student has already passed this course")
+        if asHonors:
+            if overrideHonors:
+                self.asHonors.add(course)
+            elif course not in self.asHonors:
+                raise ValueError("student did not take this course as honors")
+        else:
+            # the student did not pass with honors credits
+            self.asHonors.discard(course)
         self.passedClasses.add(course)
         # ask this course to confer its credits onto the student
         course.confer(self)
@@ -175,19 +199,22 @@ class Student:
         for i in credits:
             self.credits[i] = self.credits.get(i, 0) + amount
     def prettyprint(self):
-        print(self.id, ':', *self.name, end=' ')
+        print(self.id, ':', *self.name, end=', ')
         print('age', str(self.age) + ', year', self.grade)
-        print('\tfailed:', ', '.join(self.failedClasses))
-        print('\tpassed:', ', '.join(self.passedClasses))
-        print('\thonors courses:', ', '.join(self.asHonors))
-        print('\tenrolled:', ', '.join(str(i)
-                                       for i in self.enrollmentHistory[-1]))
+        print('\tfailed:')
+        print('\t\t', ', '.join(i.name for i in self.failedClasses))
+        print('\tpassed:')
+        print('\t\t', ', '.join(i.name for i in self.passedClasses))
+        print('\thonors courses:', ', '.join(i.name for i in self.asHonors))
+        print('\tenrolled:', end='\n\t\t')
+        print('\n\t\t'.join(str(i) for i in self.enrollmentHistory[-1]))
+        print()
         
 class Course:
     """ Contains all the information about a course, including its prerequisites
     """
     def __init__(self, id, name,
-                 minGrade=9, hasHonors=False,  honorsTitle=None):
+                 minGrade=9, hasHonors=False, honorsTitle=None):
         self.id = id
         self.name = name
         # record if this course has an honors equivalent
@@ -212,16 +239,17 @@ class Course:
         if student.grade < self.grade:
             return False
         # don't let a student take a class twice
-        if student.hasTaken(self):
+        if student.hasPassed(self):
             return False
         for i in self.preReqs:
             if not student.hasTaken(i):
                 return False
         return True
+    def hasPrerequisite(self, course):
+        return course in self.preReqs
     def __str__(self):
+        name = self.name
         if self.worth == 1:
-            return (self.name
-                   + ' (' + str(self.worth) + ' credit)')
-        return (self.name
-           + ' (' + str(self.worth) + ' credits)')
+            return name + ' (' + str(self.worth) + ' credit)'
+        return name + ' (' + str(self.worth) + ' credits)'
 
