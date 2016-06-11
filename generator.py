@@ -5,13 +5,14 @@ simParams = {
     "lowAge": 0.6,                          # % students who enter HS at age 14
     "failChance": 0.08,                     # chance of failing a class
     "honors": 0.15,                         # chance of student getting honors
-    "honorsFailOut": 0.05,                  # chance of a student losing honors
+    "honorsFailChance": 0.05,               # chance of failing an honors course
+    "honorsFallOut": 0.03,                  # chance of a student losing honors
     "band": 0.5,                            # percent of kids who take band
     "dropoutAge": 17,                       # age at which students can drop out
     "dropoutChance": 0.05,                  # percent of kids who drop out
     "maxAge": 20,                           # max age which students can attend
     "electives": 2,                         # electives each year
-    "maxCourses": 8,                         # total courses someone can take
+    "maxCourses": 8,                        # total courses someone can take
     "enrollment": 110,                      # baseline students enrolled
     "enrollmentMargin": 25                  # max +/- enrollment
 }
