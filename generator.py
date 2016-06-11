@@ -251,8 +251,7 @@ class Course:
         self.honorsTitle = title if title is not None else self.honorsTitle
         return self
     def credit(self, *creditTypes, amt=1):
-        """ Make this course credit bearing
-        """
+        """ Make this course credit bearing """
         self.worth = amt
         if len(creditTypes) > 0:
             self.reg.recordCredits(*creditTypes)
@@ -265,8 +264,7 @@ class Course:
         self.preReqs.extend(reg.getCourse(name=i) for i in reqs)
         return self
     def track(self, track, level):
-        """ Make this class part of a core track
-        """
+        """ Make this class part of a core track """
         self.reg.addCourseToTrack(self, track, level)
         return self
     def asElective(self):
