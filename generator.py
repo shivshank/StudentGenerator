@@ -48,37 +48,54 @@ class Student:
         self.passedClasses = set()
         # asHonors is used to see if a student is taking/passed an honors class
         self.asHonors = set()
-        # represents ALL credits
+        # represents credits earned
         self.credits = {}
         # each year is represented by a list of courses
         self.enrollmentHistory = [[]]
-    def getPassed(self):
-        return self.passedClasses
-    def attempt(self, course):
-        """ Record that a class was attempted """
-        self.enrollmentHistory[-1].append(course)
     def beginNewYear():
         """ Record that a new year has begun (for bookkeeping only) """
         self.enrollmentHistory.append([])
     def msg(self, info):
         """ Record a message about this student (for bookkeeping only) """
         self.info.append(info)
+    def enroll(self, course, asHonors=False):
+        """ Record that a class was attempted """
+        self.enrollmentHistory[-1].append(course)
+        if asHonors:
+            if not course.hasHonors:
+                raise ValueError("Course", str(course), "does not have honors")
+            self.asHonors.add(course)
+    def isEnrolledIn(self, course):
+        return course in self.enrollmentHistory[-1]
+    def isEnrolledInHonors(self, course):
+        if not course.hasHonors:
+            return False
+        return course in self.enrollmentHistory[-1] and course in self.asHonors
+    def hasTaken(self, course):
+        return course in self.passedClasses or course in self.failedClasses
+    def getPassed(self):
+        return self.passedClasses
     def failed(self, course):
+        """ record that a class has been failed, receiving no credits """
         self.failedClasses.add(course)
+        # discard prevents key error from being thrown for non honors courses
+        self.asHonors.discard(course)
     def passed(self, course):
+        """ record that a class has been passed and confer the credits """
         assert course not in self.passedClasses, \
             "student took a class twice: " + course.name
         self.passedClasses.add(course)
         # ask this course to confer its credits onto the student
         course.confer(self)
-    def setTracks(self, **kwargs):
-        for k, v in kwargs.items():
-            self.coreProgress[k] = v
-    def enroll(self, elective):
-        self.electives.append(elective)
     def giveCredits(self, credits, amount):
         for i in credits:
             self.credits[i] = self.credits.get(i, 0) + amount
+    def prettyprint(self):
+        print(self.id, ':', *self.name, end=' ')
+        print('age', str(self.age) + ', year', self.grade)
+        print('\tfailed:', ', '.join(self.failedClasses))
+        print('\tpassed:', ', '.join(self.passedClasses))
+        print('\thonors courses:', ', '.join(self.asHonors))
 
 def regMethod(func):
     """ Decorate Registrar methods so that they perform standard book keeping
@@ -223,11 +240,10 @@ class Course:
         if student.grade < self.grade:
             return False
         # don't let a student take a class twice
-        if self in student.getPassed():
+        if student.hasTaken(self):
             return False
-        credits = student.getPassed()
         for i in self.preReqs:
-            if i not in credits:
+            if not student.hasTaken(i):
                 return False
         return True
     def honors(self, title=None):
