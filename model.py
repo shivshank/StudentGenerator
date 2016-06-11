@@ -79,6 +79,12 @@ class Registrar:
         self.credits.update(titles)
     def recordGradReqs(self, **credits):
         self.gradReqs.update(credits)
+    def canGraduate(self, student):
+        earned = student.getCredits()
+        for creditTitle, amount in self.gradReqs.items():
+            if earned.get(creditTitle, 0) < amount:
+                return False
+        return True
     def prettyprint(self):
         # this method makes me cringe a little bit
         print('Registry:')
@@ -151,6 +157,8 @@ class Student:
         return course in self.passedClasses or course in self.failedClasses
     def getPassed(self):
         return self.passedClasses
+    def getCredits(self):
+        return self.credits
     def failed(self, course):
         """ record that a class has been failed, receiving no credits """
         self.failedClasses.add(course)
