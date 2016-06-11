@@ -21,6 +21,7 @@ class Registrar:
         self.specials = []
         self.credits = set()
         self.gradReqs = {}
+        self.gradCredits = 0
     def getCourse(self, id=None, name=None):
         if id is not None:
             return self.getCourseById(id)
@@ -87,14 +88,23 @@ class Registrar:
     def recordCredits(self, *titles):
         """ Record that titles are a type of credit """
         self.credits.update(titles)
-    def recordGradReqs(self, **credits):
+    def recordGradReqs(self, totalReq, **credits):
         self.gradReqs.update(credits)
+        self.totalReq = totalReq
     def canGraduate(self, student):
         earned = student.getCredits()
         for creditTitle, amount in self.gradReqs.items():
             if earned.get(creditTitle, 0) < amount:
                 return False
         return True
+    def getMissingReqs(self, student):
+        earned = student.getCredits()
+        missing = {}
+        for creditTitle, amount in self.gradReqs.items():
+            has = earned.get(creditTitle, 0)
+            if has < amount:
+                missing[creditTitle] = amount - has
+        return missing
     def prettyprint(self):
         # this method makes me cringe a little bit
         print('Registry:')
@@ -150,10 +160,12 @@ class Student:
     def msg(self, info):
         """ Record a message about this student (for bookkeeping only) """
         self.info.append(info)
-    def enroll(self, course, asHonors=False):
+    def enroll(self, course, asHonors=False, allowRetake=False):
         """ Record that a class was attempted """
         if len(self.enrollmentHistory) < 1:
             raise IndexError("You must call beginNewYear before enrolling")
+        if allowRetake and course in self.passedClasses:
+            self.passedClasses.remove(course)
         self.enrollmentHistory[-1].append(course)
         if asHonors:
             if not course.hasHonors:
@@ -176,19 +188,19 @@ class Student:
     def failed(self, course):
         """ record that a class has been failed, receiving no credits """
         if course in self.passedClasses:
-            raise ValueError("student has already passed this course")
+            raise ValueError("student has already passed " + str(course))
         self.failedClasses.add(course)
         # discard prevents key error from being thrown for non honors courses
         self.asHonors.discard(course)
     def passed(self, course, asHonors, overrideHonors=False):
         """ record that a class has been passed and confer the credits """
         if course in self.passedClasses:
-            raise ValueError("student has already passed this course")
+            raise ValueError("student has already passed " + str(course))
         if asHonors:
             if overrideHonors:
                 self.asHonors.add(course)
             elif course not in self.asHonors:
-                raise ValueError("student did not take this course as honors")
+                raise ValueError("student has already passed " + str(course))
         else:
             # the student did not pass with honors credits
             self.asHonors.discard(course)

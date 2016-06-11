@@ -97,7 +97,7 @@ randomNames = [
     "Sonia", "Stephen", "Donald", "Bernard", "Henry", "Hillary", "William"
 ]
 
-def makeDefaultRegistrar(gradReqs):
+def makeDefaultRegistrar(gradReqs, totalGradCredits):
     reg = Registrar()
 
     trackMaker("Math", "Math",
@@ -165,7 +165,7 @@ def makeDefaultRegistrar(gradReqs):
     Course(reg, "Study Hall").asSpecial()
     Course(reg, "College Success", minGrade=11) \
         .asSpecial().credit("College Success")
-    reg.recordGradReqs(**gradReqs)
+    reg.recordGradReqs(totalGradCredits, **gradReqs)
     return reg
 
 def suggestClasses(reg, student, ignoreElectives=True, ignoreSpecials=True):
@@ -186,6 +186,10 @@ def suggestClasses(reg, student, ignoreElectives=True, ignoreSpecials=True):
             req.append(course)
         else:
             options.append(course)
+    def keyFunc(i):
+        """ Courses that provide the most needed credits should come first"""
+        # TODO
+        pass
     return req, options
 
 def isTowardProgress(reg, course, student):
@@ -257,9 +261,10 @@ def enrollYear(params, reg, baseId):
 
 def advanceStudent(params, reg, student):
     # resolve this students classes
-    honorsChance = params["honorsChance"] * \
+    honorsChance = params["honors"] * \
                    (1 + params["honorsCompound"])**len(student.asHonors)
     def asHonors(c):
+        nonlocal honorsChance
         res = c.hasHonors and random.random() < honorsChance
         honorsChance *= 1 if not res else (1 + params["honorsCompound"])
         return res
@@ -271,7 +276,7 @@ def advanceStudent(params, reg, student):
                 student.failed(course)
             elif random.random() < params["honorsFallOut"]:
                 # student passed but without honors
-                student.passsed(course, False)
+                student.passed(course, False)
             else:
                 # student passed with honors
                 student.passed(course, True)
@@ -279,19 +284,23 @@ def advanceStudent(params, reg, student):
         if random.random() < params["failChance"]:
             student.failed(course)
         else:
-            student.passed(course)
+            student.passed(course, False)
     student.beginNewYear()
-    student.enroll(reg.getCourse(name="PE"))
+    student.enroll(reg.getCourse(name="PE"), allowRetake=True)
     enrolled = 1
     if random.random() < params["band"]:
-        student.enroll(reg.getCourse(name="Band"))
+        student.enroll(reg.getCourse(name="Band"), allowRetake=True)
         enrolled += 1
-    if s.grade >= 11:
+    colSc = reg.getCourse(name="College Success")
+    if student.grade == 12 and not student.hasPassed(colSc):
+        student.enroll(colSc)
+        enrolled += 1
+    if student.grade >= 11:
         # prioritize required classes after junior year
         maxReqs = params["maxCourses"]
     else:
         maxReqs = params["maxCourses"] - params["electives"]
-    req, opts = suggestClasses(reg, s, ignoreElectives=False)
+    req, opts = suggestClasses(reg, student, ignoreElectives=False)
     while enrolled < maxReqs and len(req) > 0:
         selected = req.pop(randint(0, len(req)-1))
         student.enroll(selected, asHonors(selected))
@@ -305,53 +314,21 @@ def advanceStudents(params, reg, students):
     dropouts = []
     graduates = []
     for s in students:
-        # set specials
-        s.specials = []
-        if random.random() <= params["band"]:
-            s.specials.append(Course.withName("Band"))
-        # check if they passed or failed their electives
-        for elective in s.electives:
-            if random.random() <= params["failChance"]:
-                s.failed(elective)
-            else:
-                s.passed(elective)
-        # figure out what electives they are taking now
-        s.electives = []
-        for i in range(params["electives"]):
-            # a student can only take electives they haven't passed and
-            # that they haven't taken yet
-            available = [i for i in Course.electives 
-                         if i.grade <= s.grade and i not in s.credits
-                                               and i not in s.electives]
-            if len(available) == 0:
-                # student has taken or will have taken every elective
-                break
-            chosen = random.choice(available)
-            s.enroll(chosen)
-        # advance their core progress
-        for track, progress in s.coreProgress.items():
-            if progress[0] == None:
-                # None marks that the track is complete
-                continue
-            if random.random() <= params["failChance"]:
-                s.failed(Course.tracks[track][progress[0]])
-            else:
-                s.passed(Course.tracks[track][progress[0]])
-                if progress[0] + 1< len(Course.tracks[track]):
-                    s.coreProgress[track] = (progress[0] + 1, progress[1])
-                else:
-                    s.coreProgress[track] = (None, progress[1])
+        advanceStudent(params, reg, s)
         # update rolling stats
         s.age += 1
         if s.grade < 12:
             s.grade += 1
-        # check if student graduated dropped out
-        if s.canGraduate():
+        # check if student graduated or dropped out
+        if reg.canGraduate(s):
             graduates.append(s)
+            s.msg("Graduated!")
         elif s.age > params["maxAge"]:
+            s.msg("Dropped out because they were too old.")
             dropouts.append(s)
         elif s.age > params["dropoutAge"] \
              and random.random() <= params["dropoutChance"]:
+            s.msg("Dropped out.")
             dropouts.append(s)
     for s in dropouts:
         students.remove(s)
@@ -378,17 +355,18 @@ def simulate(params, reg, years=4, enrollingYears=None):
     return students, enrolled, dropouts, graduates
 
 if __name__ == "__main__":
-    reg = makeDefaultRegistrar(gradReqs)
-    students, enrolled, dropouts, graduates = simulate(simParams, reg, 1, 1)
-    
-    """
+    reg = makeDefaultRegistrar(gradReqs, totalCredits)
+    students, enrolled, dropouts, graduates = simulate(simParams, reg, 10, 1)
+    for i in students:
+        print(', '.join(i.name for i in i.getEnrolled()))
+    print('Dropout reasons:')
+    for i in dropouts:
+        print('\t', '\n\t'.join(i.info))
     print('total enrolled', enrolled)
     print('dropouts', len(dropouts))
     print('grads', len(graduates))
-    for i in students:
-        print([j.name for j in i.getGradReqs()])
-    avgGradAge = sum(s.age for s in graduates)/len(graduates)
-    print('Average age of graduate:', avgGradAge)
-    print('Graduates aged 19:', len([i for i in graduates if i.age == 19]) )
+    print('Graduates aged 21:', len([i for i in graduates if i.age == 21]))
+    print('Graduates aged 20:', len([i for i in graduates if i.age == 20]))
+    print('Graduates aged 19:', len([i for i in graduates if i.age == 19]))
     print('Graduates aged 18:', len([i for i in graduates if i.age == 18]))
-    print('Graduates aged 17:', len([i for i in graduates if i.age == 17]))"""
+    print('Graduates aged 17:', len([i for i in graduates if i.age == 17]))
