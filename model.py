@@ -1,0 +1,217 @@
+def _regMethod(func):
+    """ Decorate Registrar methods so that they perform standard book keeping
+        operations
+    """
+    def wrap(*args):
+        args[0].all.extend(args[1:])
+        func(*args)
+    return wrap
+
+class Registrar:
+    """ Contains information relevant to finding courses
+        Should avoid duplicating information that can be gleaned from searching
+            the courses contained within.
+    """
+    def __init__(self):
+        self.nextId = 0
+        # a dict of the form {"core class type": {"level n": [courses]}}
+        self.tracks = {}
+        self.all = []
+        self.electives = []
+        self.specials = []
+        self.credits = set()
+        self.gradReqs = {}
+    def getCourse(self, id=None, name=None):
+        if id is not None:
+            return self.getCourseById(id)
+        if name is not None:
+            return self.getCourseByName(name)
+        return None
+    def getCourseByName(self, name):
+        for i in self.all:
+            if i.name == name:
+                return i
+        return None
+    def getCourseById(self, id):
+        # see if the course is at that index
+        try:
+            res = self.all[id]
+            if res.id == id:
+                return res
+        except IndexError:
+            pass
+        for i in self.all:
+            if i.id == id:
+                return i
+        return None
+    @_regMethod
+    def newCourse(self, *args):
+        """ Add a course
+            This method will most likely be used for core, non elective classes.
+                Record that the class is a core requirement by calling its
+                "track" method.
+        """
+        pass
+    @_regMethod
+    def newSpecials(self, *args):
+        self.specials.extend(args)
+    @_regMethod
+    def newElectives(self, *args):
+        self.electives.extend(args)
+    def addCourseToTrack(self, c, track, level):
+        recordedTrack = self.tracks.setdefault(track, {})
+        coursesInTrack = recordedTrack.setdefault(level, [])
+        coursesInTrack.append(c)
+    def getCoursesBelowLevel(self, track, level):
+        """ Get the courses below (exclusive) a certain level within a track """
+        reqs = []
+        for l, courses in self.tracks[track].items():
+            if l >= level:
+                continue
+            reqs.extend(courses)
+        return reqs
+    def getNextCourseId(self):
+        res = self.nextId
+        self.nextId += 1
+        return res
+    def recordCredits(self, *titles):
+        """ Record that titles are a type of credit """
+        self.credits.update(titles)
+    def recordGradReqs(self, **credits):
+        self.gradReqs.update(credits)
+    def prettyprint(self):
+        # this method makes me cringe a little bit
+        print('Registry:')
+        print('  Total Courses (discluding honors):', len(self.all))
+        # keep track of listed so we can see what courses are not in a track,
+        # special, or elective
+        listed = []
+        print('  Tracks:')
+        for track, levels in self.tracks.items():
+            print('  '*2, track)
+            for level in levels.values():
+                for course in level:
+                    print(self._prettyprintCourse(3, course))
+                    listed.append(course)
+        print('  Electives:')
+        for i in self.electives:
+            print(self._prettyprintCourse(2, i))
+            listed.append(i)
+        print('  Specials:')
+        for i in self.specials:
+            print(self._prettyprintCourse(2, i))
+            listed.append(i)
+        print('  Other:')
+        for i in self.all:
+            if i not in listed:
+                print(self._prettyprintCourse(2, i))
+        print('-END-')
+    def _prettyprintCourse(self, indent, c):
+        base = '   '*indent + str(c)
+        if c.hasHonors:
+            base += '\tw/ HON ' + c.honorsTitle
+        return base
+
+class Student:
+    def __init__(self, id, fname, lname, age, grade):
+        self.id = id
+        self.name = (fname, lname)
+        self.age = age
+        self.grade = grade
+        self.info = []
+        # classes passed and failed
+        self.failedClasses = set()
+        self.passedClasses = set()
+        # asHonors is used to see if a student is taking/passed an honors class
+        self.asHonors = set()
+        # represents credits earned
+        self.credits = {}
+        # each year is represented by a list of courses
+        self.enrollmentHistory = [[]]
+    def beginNewYear():
+        """ Record that a new year has begun (for bookkeeping only) """
+        self.enrollmentHistory.append([])
+    def msg(self, info):
+        """ Record a message about this student (for bookkeeping only) """
+        self.info.append(info)
+    def enroll(self, course, asHonors=False):
+        """ Record that a class was attempted """
+        self.enrollmentHistory[-1].append(course)
+        if asHonors:
+            if not course.hasHonors:
+                raise ValueError("Course", str(course), "does not have honors")
+            self.asHonors.add(course)
+    def isEnrolledIn(self, course):
+        return course in self.enrollmentHistory[-1]
+    def isEnrolledInHonors(self, course):
+        if not course.hasHonors:
+            return False
+        return course in self.enrollmentHistory[-1] and course in self.asHonors
+    def hasTaken(self, course):
+        return course in self.passedClasses or course in self.failedClasses
+    def getPassed(self):
+        return self.passedClasses
+    def failed(self, course):
+        """ record that a class has been failed, receiving no credits """
+        self.failedClasses.add(course)
+        # discard prevents key error from being thrown for non honors courses
+        self.asHonors.discard(course)
+    def passed(self, course):
+        """ record that a class has been passed and confer the credits """
+        assert course not in self.passedClasses, \
+            "student took a class twice: " + course.name
+        self.passedClasses.add(course)
+        # ask this course to confer its credits onto the student
+        course.confer(self)
+    def giveCredits(self, credits, amount):
+        for i in credits:
+            self.credits[i] = self.credits.get(i, 0) + amount
+    def prettyprint(self):
+        print(self.id, ':', *self.name, end=' ')
+        print('age', str(self.age) + ', year', self.grade)
+        print('\tfailed:', ', '.join(self.failedClasses))
+        print('\tpassed:', ', '.join(self.passedClasses))
+        print('\thonors courses:', ', '.join(self.asHonors))
+        
+class Course:
+    """ Contains all the information about a course, including its prerequisites
+    """
+    def __init__(self, id, name,
+                 minGrade=9, hasHonors=False,  honorsTitle=None):
+        self.id = id
+        self.name = name
+        # record if this course has an honors equivalent
+        self.hasHonors = hasHonors
+        self.honorsTitle = name if honorsTitle is None else honorsTitle
+        self.grade = minGrade
+        # how many credits this course confers
+        self.worth = 0
+        # a list of the credit categories for this course
+        self.credits = []
+        # the credits required to enroll in this course
+        self.preReqs = []
+        self.elective = False
+        self.special = False
+    def confer(self, student):
+        student.giveCredits(self.credits, self.worth)
+    def isElective(self):
+        return self.elective
+    def isSpecial(self):
+        return self.special
+    def canEnroll(self, student):
+        if student.grade < self.grade:
+            return False
+        # don't let a student take a class twice
+        if student.hasTaken(self):
+            return False
+        for i in self.preReqs:
+            if not student.hasTaken(i):
+                return False
+        return True
+    def __str__(self):
+        if self.worth == 1:
+            return (self.name
+                   + ' (' + str(self.worth) + ' credit)')
+        return (self.name
+           + ' (' + str(self.worth) + ' credits)')
+
