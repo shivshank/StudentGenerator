@@ -180,6 +180,8 @@ class Student:
         print('\tfailed:', ', '.join(self.failedClasses))
         print('\tpassed:', ', '.join(self.passedClasses))
         print('\thonors courses:', ', '.join(self.asHonors))
+        print('\tenrolled:', ', '.join(str(i)
+                                       for i in self.enrollmentHistory[-1]))
         
 class Course:
     """ Contains all the information about a course, including its prerequisites
