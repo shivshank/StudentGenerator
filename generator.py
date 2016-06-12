@@ -59,12 +59,12 @@ def trackMaker(track, credit, *courses, allHonors=True, noCredit=False):
             c.req(courses[i-1].name)
 
 simParams = {
-    "lowAge": 0.6,                          # % students who enter HS at age 14
-    "failChance": 0.08,                     # chance of failing a class
+    "lowAge": 0.03,                          # % students who enter HS at age 14
+    "failChance": 0.05,                     # chance of failing a class
     "honors": 0.17,                         # chance of student getting honors
     # how much more likely an honors student is to have more honors classes
     "honorsCompound": 0.3,
-    "honorsFailChance": 0.03,               # chance of failing an honors course
+    "honorsFailChance": 0.02,               # chance of failing an honors course
     "honorsFallOut": 0.06,                  # chance of a student losing honors
     "band": 0.5,                            # percent of kids who take band
     "dropoutAge": 17,                       # age at which students can drop out
@@ -171,6 +171,7 @@ def makeDefaultRegistrar(gradReqs, totalGradCredits):
 def suggestClasses(reg, student, ignoreElectives=True, ignoreSpecials=True):
     req = []
     options = []
+    unmet = reg.getMissingReqs(student)
     for course in reg.all:
         if not course.canEnroll(student):
             continue
@@ -181,22 +182,24 @@ def suggestClasses(reg, student, ignoreElectives=True, ignoreSpecials=True):
         elif course.isElective():
             options.append(course)
             continue
-        # if the course meets (i.e., intersects with) unmet requirements...
-        if isTowardProgress(reg, course, student):
+        if isTowardProgress(course, unmet.keys()):
             req.append(course)
         else:
             options.append(course)
-    def keyFunc(i):
-        """ Courses that provide the most needed credits should come first"""
-        # TODO
-        pass
+    req.sort(key=lambda i: scoreCourse(i, unmet))
     return req, options
 
-def isTowardProgress(reg, course, student):
-    gradReqs = reg.gradReqs
-    # get all credit categories from gradReqs that are unfulfilled by student
-    unmet = [k for k, v in gradReqs.items()
-             if student.getCredits().get(k, 0) < v]
+def scoreCourse(course, unmet):
+    courseCredits = set(course.getCredits())
+    score = 0
+    for credit, missing in unmet.items():
+        if credit in courseCredits:
+            # TODO: Find a good scoring function
+            score += missing + course.worth
+    return score
+
+def isTowardProgress(course, unmet):
+    # if the course meets (i.e., intersects with) unmet requirements...
     return len(set(unmet).intersection(course.credits)) > 0
 
 def getAvailableElectives(reg, student):
@@ -228,7 +231,7 @@ def enrollNewStudent(params, reg, id):
             honorsChance *= 1 + params["honorsCompound"]
         return res
     while enrolledCount < params["maxCourses"] and len(req) > 0:
-        selected = req.pop(randint(0, len(req)-1))
+        selected = req.pop()
         if selected.name in skippable:
             honorsResult = random.random() < honorsChance
             honorsChance *= (1 + params["honorsCompound"])**honorsResult
@@ -302,7 +305,7 @@ def advanceStudent(params, reg, student):
         maxReqs = params["maxCourses"] - params["electives"]
     req, opts = suggestClasses(reg, student, ignoreElectives=False)
     while enrolled < maxReqs and len(req) > 0:
-        selected = req.pop(randint(0, len(req)-1))
+        selected = req.pop()
         student.enroll(selected, asHonors(selected))
         enrolled += 1
     while enrolled < params["maxCourses"] and len(opts) > 0:
@@ -314,11 +317,11 @@ def advanceStudents(params, reg, students):
     dropouts = []
     graduates = []
     for s in students:
-        advanceStudent(params, reg, s)
         # update rolling stats
         s.age += 1
         if s.grade < 12:
             s.grade += 1
+        advanceStudent(params, reg, s)
         # check if student graduated or dropped out
         if reg.canGraduate(s):
             graduates.append(s)
@@ -356,9 +359,12 @@ def simulate(params, reg, years=4, enrollingYears=None):
 
 if __name__ == "__main__":
     reg = makeDefaultRegistrar(gradReqs, totalCredits)
-    students, enrolled, dropouts, graduates = simulate(simParams, reg, 10, 1)
+    students, enrolled, dropouts, graduates = simulate(simParams, reg, 5, 1)
     for i in students:
-        print(', '.join(i.name for i in i.getEnrolled()))
+        if reg.getMissingReqs(i).keys():
+            print([i.name for i in i.failedClasses])
+            print('\t', reg.getMissingReqs(i))
+        #', '.join(i for i in reg.getMissingReqs(i).keys()))
     print('Dropout reasons:')
     for i in dropouts:
         print('\t', '\n\t'.join(i.info))

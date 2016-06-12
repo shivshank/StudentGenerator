@@ -241,6 +241,8 @@ class Course:
         self.preReqs = []
         self.elective = False
         self.special = False
+    def getCredits(self):
+        return self.credits
     def confer(self, student):
         student.giveCredits(self.credits, self.worth)
     def isElective(self):
